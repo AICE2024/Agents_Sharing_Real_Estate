@@ -1,0 +1,146 @@
+const ADMIN_EMAIL = "youremail@gmail.com";
+
+function reassignAgents() {
+
+const user = Session.getActiveUser().getEmail();
+
+if (user !== ADMIN_EMAIL) {
+SpreadsheetApp.getUi().alert("Only the administrator can run reassignment.");
+return;
+}
+
+const ss = SpreadsheetApp.getActiveSpreadsheet();
+const sheet = ss.getSheetByName("AGENT_POOL");
+let archive = ss.getSheetByName("Reassigned Agents");
+
+if (!archive) {
+archive = ss.insertSheet("Reassigned Agents");
+archive.appendRow(["Agent","Phone","Primary Rep","Assigned To","Claimed By","Date"]);
+}
+
+const team = sheet.getRange("H2:H").getValues().flat().filter(String);
+
+const lastRow = sheet.getLastRow();
+
+if (lastRow < 2) {
+SpreadsheetApp.getUi().alert("No agents found.");
+return;
+}
+
+const dataRange = sheet.getRange(2,1,lastRow-1,5);
+const data = dataRange.getValues();
+
+let remaining = [];
+let quota = {};
+let repAssignedCount = {};
+
+team.forEach(rep => {
+quota[rep] = 0;
+repAssignedCount[rep] = 0;
+});
+
+
+// Step 1 — move claimed agents to archive
+data.forEach(row => {
+
+let agent = row[0];
+let phone = row[1];
+let primary = row[2];
+let assigned = row[3];
+let claimed = row[4];
+
+if (!agent) return;
+
+if (claimed) {
+
+archive.appendRow([
+agent,
+phone,
+primary,
+assigned,
+claimed,
+new Date()
+]);
+
+} else {
+
+if (quota.hasOwnProperty(primary)) {
+quota[primary]++;
+}
+
+remaining.push(row);
+
+}
+
+});
+
+
+// Step 2 — shuffle agents randomly
+remaining.sort(() => Math.random() - 0.5);
+
+
+// Step 3 — assign agents respecting quotas
+remaining.forEach(row => {
+
+let primary = row[2];
+
+let possible = team.filter(rep =>
+rep !== primary &&
+repAssignedCount[rep] < quota[rep]
+);
+
+// fallback if no options available
+if (possible.length === 0) {
+
+possible = team.filter(rep =>
+repAssignedCount[rep] < quota[rep]
+);
+
+}
+
+if (possible.length === 0) return;
+
+let chosen = possible[Math.floor(Math.random() * possible.length)];
+
+repAssignedCount[chosen]++;
+
+row[3] = chosen;
+
+});
+
+
+// Step 4 — clear table and rewrite
+sheet.getRange(2,1,lastRow-1,5).clearContent();
+
+if (remaining.length > 0) {
+
+sheet.getRange(2,1,remaining.length,5).setValues(remaining);
+
+}
+
+
+// Step 5 — lock agent columns after first run
+lockAgentColumns();
+
+
+SpreadsheetApp.getUi().alert("Reassignment completed.");
+
+}
+
+
+
+function lockAgentColumns(){
+
+const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("AGENT_POOL");
+
+let protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+
+if (protections.length === 0) {
+
+const protection = sheet.getRange("A2:C").protect();
+
+protection.setDescription("Lock agent data");
+
+}
+
+}
